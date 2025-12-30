@@ -21,8 +21,14 @@ option=st.sidebar.radio("Select Options:",["Basic Information","Operational Task
 
 # Main Space
 st.title("Inventory and Supply Chain Dashboard")
-db=connect_to_db()
-cursor=db.cursor(dictionary=True)
+
+# Connect to database with error handling
+try:
+    db = connect_to_db()
+    cursor = db.cursor(dictionary=True)
+except Exception as e:
+    st.error(f"Failed to connect to database: {str(e)}")
+    st.stop()
 
 # -------------------- Basic Information Page -----------------------------
 

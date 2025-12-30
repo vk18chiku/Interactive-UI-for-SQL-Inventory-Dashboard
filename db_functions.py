@@ -1,14 +1,29 @@
 import mysql.connector
 import streamlit as st
 
+@st.cache_resource
 def connect_to_db():
-    return mysql.connector.connect(
-        host=st.secrets["DB_HOST"],
-        user=st.secrets["DB_USER"],
-        database=st.secrets["DB_NAME"],
-        password=st.secrets["DB_PASSWORD"],
-        port=st.secrets["DB_PORT"]
-    )
+    try:
+        connection = mysql.connector.connect(
+            host=st.secrets["DB_HOST"],
+            user=st.secrets["DB_USER"],
+            database=st.secrets["DB_NAME"],
+            password=st.secrets["DB_PASSWORD"],
+            port=st.secrets["DB_PORT"],
+            autocommit=True,
+            connection_timeout=10
+        )
+        return connection
+    except Exception as e:
+        st.error(f"❌ Database connection failed: {str(e)}")
+        st.info("""
+        **Troubleshooting:**
+        1. Make sure your database is publicly accessible
+        2. Add Streamlit Cloud IP to your database whitelist
+        3. Verify secrets are correctly configured in Streamlit Cloud
+        4. Check if database server is running
+        """)
+        st.stop()
 
 
 
