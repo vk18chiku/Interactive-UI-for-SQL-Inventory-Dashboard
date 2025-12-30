@@ -1,17 +1,12 @@
 import mysql.connector
+
 def connect_to_db():
     return mysql.connector.connect(
-
         host="localhost",
-
         user="root",
-
         database="dummy_project",
-
         password="Uttam1234@",
-
         port=3307
-
     )
 
 
