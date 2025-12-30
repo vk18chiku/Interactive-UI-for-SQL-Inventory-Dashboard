@@ -1,12 +1,13 @@
-import pymysql
+import mysql.connector
+import streamlit as st
 
 def connect_to_db():
-    return pymysql.connect(
-        host="localhost",
-        user="root",
-        database="dummy_project",
-        password="Uttam1234@",
-        port=3307
+    return mysql.connector.connect(
+        host=st.secrets["DB_HOST"],
+        user=st.secrets["DB_USER"],
+        database=st.secrets["DB_NAME"],
+        password=st.secrets["DB_PASSWORD"],
+        port=st.secrets["DB_PORT"]
     )
 
 
