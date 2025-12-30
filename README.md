@@ -1,21 +1,21 @@
-# Interactive UI for SQL Inventory Dashboard
+# 📊 Interactive UI for SQL Inventory Dashboard
 
 ## 📌 Project Overview
-The **Interactive UI for SQL Inventory Dashboard** is a live, interactive web-based dashboard built using **Streamlit** and **MySQL**.  
-This project allows real-time inventory and supply chain management where any changes made through the dashboard are **immediately reflected in the MySQL database**.
+The **Interactive UI for SQL Inventory Dashboard** is a live, web-based dashboard built using **Streamlit** and **MySQL**.  
+It enables real-time inventory and supply chain management, where any action performed through the UI is **instantly reflected in the MySQL database**.
 
-Along with inventory and supply chain data, the dashboard also displays **user-related data**, making it useful for monitoring operations and supporting data-driven decisions.
+Along with inventory and supply chain information, the dashboard also displays **user-related data**, making it useful for operational monitoring and data-driven decision-making.
 
 ---
 
 ## 🚀 Features
-- Live interactive inventory dashboard
-- Real-time connection with MySQL database
-- Add, update, and delete inventory records directly from the UI
-- Automatic reflection of dashboard changes in database tables
-- Supply chain data visualization
-- User data display and monitoring
-- Clean and responsive Streamlit interface
+- Live interactive inventory dashboard  
+- Real-time MySQL database connectivity  
+- Add, update, and delete inventory records directly from the UI  
+- Instant reflection of database changes on the dashboard  
+- Supply chain data visualization  
+- User data monitoring  
+- Clean, responsive, and user-friendly Streamlit interface  
 
 ---
 
@@ -30,21 +30,24 @@ Along with inventory and supply chain data, the dashboard also displays **user-r
 
 ---
 
-## 🔗 How the Project Works
-1. Streamlit is used to create an interactive web dashboard.
-2. The dashboard is connected to a MySQL database.
-3. Any insert, update, or delete operation performed from the UI directly updates the MySQL tables.
-4. Updated data is instantly reflected back on the dashboard.
-5. Inventory, supply chain, and user data are shown in real time.
+## 🔗 Live Dashboard
+👉 **View the live dashboard here:**  
+https://uk-1695-interactive-ui-dashboard.streamlit.app/
 
 ---
 
-👤 Author
+## 🔄 How the Project Works
+1. Streamlit is used to build an interactive web-based dashboard.  
+2. The dashboard connects securely to a MySQL database.  
+3. Insert, update, or delete operations performed via the UI directly modify MySQL tables.  
+4. Updated data is fetched and displayed instantly on the dashboard.  
+5. Inventory, supply chain, and user data remain synchronized in real time.  
 
-Uttam Mahato
-B.Tech (ECE / ES & IoT)
-Indian Institute of Information Technology, Ranchi
+---
 
+## 👤 Author
+**Uttam Mahato**  
+B.Tech (ECE / ES & IoT)  
 
 
 
