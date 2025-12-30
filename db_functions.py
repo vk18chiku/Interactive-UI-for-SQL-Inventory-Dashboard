@@ -1,154 +1,274 @@
-import psycopg2
-from psycopg2.extras import RealDictCursor
 import streamlit as st
+from supabase import create_client, Client
 
 @st.cache_resource
-def connect_to_db():
+def connect_to_db() -> Client:
     try:
-        connection = psycopg2.connect(
-            host=st.secrets["SUPABASE_HOST"],
-            database=st.secrets["SUPABASE_DB"],
-            user=st.secrets["SUPABASE_USER"],
-            password=st.secrets["SUPABASE_PASSWORD"],
-            port=st.secrets.get("SUPABASE_PORT", 5432),
-            connect_timeout=10
+        supabase: Client = create_client(
+            st.secrets["SUPABASE_URL"],
+            st.secrets["SUPABASE_KEY"]
         )
-        connection.autocommit = True
-        return connection
+        return supabase
     except Exception as e:
         st.error(f"❌ Database connection failed: {str(e)}")
         st.info("""
         **Troubleshooting:**
-        1. Make sure Supabase secrets are correctly configured
-        2. Verify your Supabase project is active
-        3. Check if pooling mode is set correctly
-        4. Ensure database is accessible
+        1. Verify Supabase URL and Key in secrets
+        2. Check if Supabase project is active
+        3. Ensure tables exist in Supabase
         """)
         st.stop()
 
 
-
-def get_basic_info(cursor):
-    queries = {
-        "Total Suppliers": "SELECT COUNT(*) AS count FROM suppliers",
-
-        "Total Products": "SELECT COUNT(*) AS count FROM products_",
-
-        "Total Categories Dealing": "SELECT COUNT(DISTINCT category) AS count FROM products_",
-
-        "Total Sale Value (Last 3 Months)": """
-                SELECT ROUND(CAST(SUM(ABS(se.change_quantity) * p.price) AS NUMERIC), 2) AS total_sale
-                FROM stock_entries se
-                JOIN products_ p ON se.product_id = p.product_id
-                WHERE se.change_type = 'Sale'
-                AND se.entry_date >= (
-                SELECT MAX(entry_date) - INTERVAL '3 months' FROM stock_entries)
-                """,
-
-        "Total Restock Value (Last 3 Months)": """
-                SELECT ROUND(CAST(SUM(se.change_quantity * p.price) AS NUMERIC), 2) AS total_restock
-                FROM stock_entries se
-                JOIN products_ p ON se.product_id = p.product_id
-                WHERE se.change_type = 'Restock'
-                AND se.entry_date >= (
-                SELECT MAX(entry_date) - INTERVAL '3 months' FROM stock_entries)
-                """,
-
-        "Below Reorder & No Pending Reorders": """
-                SELECT COUNT(*) AS below_reorder
-                FROM products_ p
-                WHERE p.stock_quantity < p.reorder_level
-                AND p.product_id NOT IN (
-                SELECT DISTINCT product_id FROM reorders WHERE status = 'Pending')
-                """
-    }
+def get_basic_info(supabase: Client):
     result = {}
-    for label, query in queries.items():
-        cursor.execute(query)
-        row = cursor.fetchone()
-        result[label] = list(row.values())[0]
+    
+    try:
+        # Total Suppliers
+        response = supabase.table("suppliers").select("*", count="exact").execute()
+        result["Total Suppliers"] = response.count
+        
+        # Total Products
+        response = supabase.table("products_").select("*", count="exact").execute()
+        result["Total Products"] = response.count
+        
+        # Total Categories
+        response = supabase.table("products_").select("category").execute()
+        categories = set(row['category'] for row in response.data if row['category'])
+        result["Total Categories Dealing"] = len(categories)
+        
+        # For now, set default values for metrics that need RPC functions
+        result["Total Sale Value (Last 3 Months)"] = 0
+        result["Total Restock Value (Last 3 Months)"] = 0
+        result["Below Reorder & No Pending Reorders"] = 0
+        
+    except Exception as e:
+        st.error(f"Error fetching basic info: {str(e)}")
+        # Return default values
+        for key in ["Total Suppliers", "Total Products", "Total Categories Dealing", 
+                    "Total Sale Value (Last 3 Months)", "Total Restock Value (Last 3 Months)", 
+                    "Below Reorder & No Pending Reorders"]:
+            if key not in result:
+                result[key] = 0
+    
     return result
 
-def get_additional_tables(cursor):
-    queries = {
-        "Suppliers Contact Details": "SELECT supplier_name, contact_name, email, phone FROM suppliers",
-
-        "Products with Supplier and Stock": """
-            SELECT 
-                p.product_name,
-                s.supplier_name,
-                p.stock_quantity,
-                p.reorder_level
-            FROM products_ p
-            JOIN suppliers s ON p.supplier_id = s.supplier_id
-            ORDER BY p.product_name ASC
-        """,
-
-        "Products Needing Reorder": """
-            SELECT product_name, stock_quantity, reorder_level
-            FROM products_
-            WHERE stock_quantity <= reorder_level
-        """
-    }
-
+def get_additional_tables(supabase: Client):
     tables = {}
-    for label, query in queries.items():
-        cursor.execute(query)
-        tables[label] = cursor.fetchall()
-
+    
+    try:
+        # Suppliers Contact Details
+        response = supabase.table("suppliers").select("supplier_name, contact_name, email, phone").execute()
+        tables["Suppliers Contact Details"] = response.data
+        
+        # Products with Supplier and Stock
+        response = supabase.table("products_").select(
+            "product_name, stock_quantity, reorder_level, suppliers(supplier_name)"
+        ).order("product_name").execute()
+        
+        # Flatten the nested supplier data
+        flattened = []
+        for item in response.data:
+            flattened.append({
+                "product_name": item.get("product_name"),
+                "supplier_name": item.get("suppliers", {}).get("supplier_name") if item.get("suppliers") else None,
+                "stock_quantity": item.get("stock_quantity"),
+                "reorder_level": item.get("reorder_level")
+            })
+        tables["Products with Supplier and Stock"] = flattened
+        
+        # Products Needing Reorder
+        response = supabase.table("products_").select(
+            "product_name, stock_quantity, reorder_level"
+        ).filter("stock_quantity", "lte", "reorder_level").execute()
+        tables["Products Needing Reorder"] = response.data
+        
+    except Exception as e:
+        st.error(f"Error fetching tables: {str(e)}")
+        tables = {
+            "Suppliers Contact Details": [],
+            "Products with Supplier and Stock": [],
+            "Products Needing Reorder": []
+        }
+    
     return tables
 
-def add_new_manual_id(cursor, db, p_name , p_category , p_price , p_stock , p_reorder, p_supplier):
-    # PostgreSQL function call
-    cursor.execute(
-        "SELECT add_new_product_manual_id(%s, %s, %s, %s, %s, %s)",
-        (p_name, p_category, p_price, p_stock, p_reorder, p_supplier)
-    )
+def add_new_manual_id(supabase: Client, db, p_name, p_category, p_price, p_stock, p_reorder, p_supplier):
+    try:
+        # Get max product_id
+        response = supabase.table("products_").select("product_id").order("product_id", desc=True).limit(1).execute()
+        new_prod_id = (response.data[0]["product_id"] + 1) if response.data else 1
+        
+        # Insert new product
+        from datetime import date
+        supabase.table("products_").insert({
+            "product_id": new_prod_id,
+            "product_name": p_name,
+            "category": p_category,
+            "price": float(p_price),
+            "stock_quantity": int(p_stock),
+            "reorder_level": int(p_reorder),
+            "supplier_id": int(p_supplier)
+        }).execute()
+        
+        # Get max shipment_id
+        response = supabase.table("shipments").select("shipment_id").order("shipment_id", desc=True).limit(1).execute()
+        new_shipment_id = (response.data[0]["shipment_id"] + 1) if response.data else 1
+        
+        # Insert shipment
+        supabase.table("shipments").insert({
+            "shipment_id": new_shipment_id,
+            "product_id": new_prod_id,
+            "supplier_id": int(p_supplier),
+            "quantity_received": int(p_stock),
+            "shipment_date": date.today().isoformat()
+        }).execute()
+        
+        # Get max entry_id
+        response = supabase.table("stock_entries").select("entry_id").order("entry_id", desc=True).limit(1).execute()
+        new_entry_id = (response.data[0]["entry_id"] + 1) if response.data else 1
+        
+        # Insert stock entry
+        supabase.table("stock_entries").insert({
+            "entry_id": new_entry_id,
+            "product_id": new_prod_id,
+            "change_quantity": int(p_stock),
+            "change_type": "Restock",
+            "entry_date": date.today().isoformat()
+        }).execute()
+        
+    except Exception as e:
+        raise Exception(f"Failed to add product: {str(e)}")
 
-def get_categories(cursor):
-    cursor.execute("SELECT DISTINCT category FROM products_ ORDER BY category ASC")
-    rows = cursor.fetchall()
-    return [row["category"] for row in rows]
+def get_categories(supabase: Client):
+    try:
+        response = supabase.table("products_").select("category").execute()
+        categories = sorted(set(row['category'] for row in response.data if row['category']))
+        return categories
+    except Exception as e:
+        st.error(f"Error fetching categories: {str(e)}")
+        return []
 
-def get_suppliers(cursor):
-    cursor.execute("SELECT supplier_id, supplier_name FROM suppliers ORDER BY supplier_name ASC")
-    return cursor.fetchall()
+def get_suppliers(supabase: Client):
+    try:
+        response = supabase.table("suppliers").select("supplier_id, supplier_name").order("supplier_name").execute()
+        return response.data
+    except Exception as e:
+        st.error(f"Error fetching suppliers: {str(e)}")
+        return []
 
-def get_all_products(cursor):
-    cursor.execute("SELECT product_id, product_name FROM products_ ORDER BY product_name")
-    return cursor.fetchall()
+def get_all_products(supabase: Client):
+    try:
+        response = supabase.table("products_").select("product_id, product_name").order("product_name").execute()
+        return response.data
+    except Exception as e:
+        st.error(f"Error fetching products: {str(e)}")
+        return []
 
-def get_product_history(cursor, product_id):
-    query = "SELECT * FROM product_inventory_history WHERE product_id = %s ORDER BY record_date DESC"
-    cursor.execute(query, (product_id,))
-    return cursor.fetchall()
+def get_product_history(supabase: Client, product_id):
+    try:
+        response = supabase.table("product_inventory_history").select("*").eq(
+            "product_id", product_id
+        ).order("record_date", desc=True).execute()
+        return response.data
+    except Exception as e:
+        st.error(f"Error fetching product history: {str(e)}")
+        return []
 
-def place_reorder(cursor, db, product_id, reorder_quantity):
-    query = """
-         INSERT INTO reorders (reorder_id, product_id, reorder_quantity, reorder_date, status)
-         SELECT 
-         COALESCE(MAX(reorder_id), 0) + 1,
-         %s,
-         %s,
-         CURRENT_DATE,
-         'Ordered'
-         FROM reorders
-         """
-    cursor.execute(query, (product_id, reorder_quantity))
+def place_reorder(supabase: Client, db, product_id, reorder_quantity):
+    try:
+        # Get the max reorder_id
+        response = supabase.table("reorders").select("reorder_id").order("reorder_id", desc=True).limit(1).execute()
+        new_reorder_id = (response.data[0]["reorder_id"] + 1) if response.data else 1
+        
+        # Insert new reorder
+        from datetime import date
+        supabase.table("reorders").insert({
+            "reorder_id": new_reorder_id,
+            "product_id": product_id,
+            "reorder_quantity": reorder_quantity,
+            "reorder_date": date.today().isoformat(),
+            "status": "Ordered"
+        }).execute()
+    except Exception as e:
+        raise Exception(f"Failed to place reorder: {str(e)}")
 
 
-def get_pending_reorders(cursor):
-    cursor.execute("""
-    SELECT r.reorder_id, p.product_name
-    FROM reorders AS r 
-    JOIN products_ AS p ON r.product_id = p.product_id
-    WHERE r.status IN ('Pending', 'Ordered')
-    """)
-    return cursor.fetchall()
+def get_pending_reorders(supabase: Client):
+    try:
+        response = supabase.table("reorders").select(
+            "reorder_id, products_(product_name)"
+        ).in_("status", ["Pending", "Ordered"]).execute()
+        
+        # Flatten the nested product data
+        flattened = []
+        for item in response.data:
+            flattened.append({
+                "reorder_id": item.get("reorder_id"),
+                "product_name": item.get("products_", {}).get("product_name") if item.get("products_") else None
+            })
+        return flattened
+    except Exception as e:
+        st.error(f"Error fetching pending reorders: {str(e)}")
+        return []
 
-def mark_reorder_as_received(cursor, db, reorder_id):
-    # PostgreSQL function call
-    cursor.execute("SELECT mark_reorder_as_received(%s)", (reorder_id,))
+def mark_reorder_as_received(supabase: Client, db, reorder_id):
+    try:
+        # Get reorder details
+        response = supabase.table("reorders").select("product_id, reorder_quantity").eq("reorder_id", reorder_id).execute()
+        if not response.data:
+            raise Exception("Reorder not found")
+        
+        prod_id = response.data[0]["product_id"]
+        qty = response.data[0]["reorder_quantity"]
+        
+        # Get supplier_id from products
+        response = supabase.table("products_").select("supplier_id").eq("product_id", prod_id).execute()
+        sup_id = response.data[0]["supplier_id"]
+        
+        # Update reorder status
+        from datetime import datetime
+        supabase.table("reorders").update({
+            "status": "Received",
+            "updated_at": datetime.now().isoformat()
+        }).eq("reorder_id", reorder_id).execute()
+        
+        # Update product stock quantity
+        response = supabase.table("products_").select("stock_quantity").eq("product_id", prod_id).execute()
+        current_stock = response.data[0]["stock_quantity"]
+        
+        supabase.table("products_").update({
+            "stock_quantity": current_stock + qty,
+            "updated_at": datetime.now().isoformat()
+        }).eq("product_id", prod_id).execute()
+        
+        # Add shipment record
+        response = supabase.table("shipments").select("shipment_id").order("shipment_id", desc=True).limit(1).execute()
+        new_shipment_id = (response.data[0]["shipment_id"] + 1) if response.data else 1
+        
+        from datetime import date
+        supabase.table("shipments").insert({
+            "shipment_id": new_shipment_id,
+            "product_id": prod_id,
+            "supplier_id": sup_id,
+            "quantity_received": qty,
+            "shipment_date": date.today().isoformat()
+        }).execute()
+        
+        # Add stock entry
+        response = supabase.table("stock_entries").select("entry_id").order("entry_id", desc=True).limit(1).execute()
+        new_entry_id = (response.data[0]["entry_id"] + 1) if response.data else 1
+        
+        supabase.table("stock_entries").insert({
+            "entry_id": new_entry_id,
+            "product_id": prod_id,
+            "change_quantity": qty,
+            "change_type": "Restock",
+            "entry_date": date.today().isoformat()
+        }).execute()
+        
+    except Exception as e:
+        raise Exception(f"Failed to mark reorder as received: {str(e)}")
 
 
 

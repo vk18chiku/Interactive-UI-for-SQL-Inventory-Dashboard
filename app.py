@@ -1,6 +1,5 @@
 import streamlit as st
 import pandas as pd
-from psycopg2.extras import RealDictCursor
 
 from db_functions import (
 connect_to_db,
@@ -25,8 +24,7 @@ st.title("Inventory and Supply Chain Dashboard")
 
 # Connect to database with error handling
 try:
-    db = connect_to_db()
-    cursor = db.cursor(cursor_factory=RealDictCursor)
+    supabase = connect_to_db()
 except Exception as e:
     st.error(f"Failed to connect to database: {str(e)}")
     st.stop()
@@ -38,7 +36,7 @@ if option=="Basic Information":
 
     # get basic information from database
 
-    basic_info=get_basic_info(cursor)
+    basic_info=get_basic_info(supabase)
 
     cols=st.columns(3)
     keys=list(basic_info.keys())
@@ -55,7 +53,7 @@ if option=="Basic Information":
 
 
     # fetch and display detailed tables
-    tables=get_additional_tables(cursor)
+    tables=get_additional_tables(supabase)
     for labels,data in tables.items():
         st.header(labels)
         df=pd.DataFrame(data)
@@ -68,8 +66,8 @@ elif option == "Operational Task":
 
     if selected_task=="Add new Product":
         st.header("Add new Product")
-        categories= get_categories(cursor)
-        suppliers=get_suppliers(cursor)
+        categories= get_categories(supabase)
+        suppliers=get_suppliers(supabase)
 
         with st.form("Add Product Form"):
             product_name=st.text_input("Product Name")
@@ -94,8 +92,8 @@ elif option == "Operational Task":
                     st.error("Please enter the Product Name")
                 else:
                     try:
-                        add_new_manual_id(cursor,
-                                          db,
+                        add_new_manual_id(supabase,
+                                          None,
                                           product_name,
                                           product_category,
                                           product_price,
@@ -112,7 +110,7 @@ elif option == "Operational Task":
         st.header("Product Inventory History")
 
         # Get product List
-        products = get_all_products(cursor)
+        products = get_all_products(supabase)
         product_names = [p['product_name'] for p in products]
         product_ids = [p['product_id'] for p in products]
 
@@ -120,7 +118,7 @@ elif option == "Operational Task":
 
         if selected_product_name:
             selected_product_id = product_ids[product_names.index(selected_product_name)]
-            history_data = get_product_history(cursor, selected_product_id)
+            history_data = get_product_history(supabase, selected_product_id)
 
             if history_data:
                 df = pd.DataFrame(history_data)
@@ -134,7 +132,7 @@ elif option == "Operational Task":
     if selected_task=="Place Reorder":
         st.header("Place an Reorder")
 
-        products = get_all_products(cursor)
+        products = get_all_products(supabase)
         product_names = [p['product_name'] for p in products]
         product_ids = [p['product_id'] for p in products]
 
@@ -149,7 +147,7 @@ elif option == "Operational Task":
             else:
                 selected_product_id = product_ids[product_names.index(selected_product_name)]
                 try:
-                    place_reorder(cursor, db, selected_product_id, reorder_qty)
+                    place_reorder(supabase, None, selected_product_id, reorder_qty)
                     st.success(f"Order placed for {selected_product_name} with quantity {reorder_qty}")
                 except Exception as e:
                     st.error(f"Error Placing reorder {e}")
@@ -161,7 +159,7 @@ elif option == "Operational Task":
     elif selected_task=="Receive Reorder":
         st.header("Mark Reorder as Received")
         # Fetch orders in Ordered Stage
-        pending_reorders= get_pending_reorders(cursor)
+        pending_reorders= get_pending_reorders(supabase)
         if not pending_reorders:
             st.info("No Pending Orders to Receive.")
         else:
@@ -175,7 +173,7 @@ elif option == "Operational Task":
 
                 if st.button("Mark as Received"):
                     try:
-                       mark_reorder_as_received(cursor, db  , selected_reorder_id)
+                       mark_reorder_as_received(supabase, None, selected_reorder_id)
                        st.success(f"Reorder ID {selected_reorder_id} marked as received")
                     except Exception as e:
                         st.error(f"Error {e}")
