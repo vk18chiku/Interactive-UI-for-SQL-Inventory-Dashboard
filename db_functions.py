@@ -1,7 +1,7 @@
-import mysql.connector
+import pymysql
 
 def connect_to_db():
-    return mysql.connector.connect(
+    return pymysql.connect(
         host="localhost",
         user="root",
         database="dummy_project",
