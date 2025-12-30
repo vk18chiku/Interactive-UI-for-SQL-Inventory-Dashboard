@@ -77,11 +77,16 @@ def get_additional_tables(supabase: Client):
             })
         tables["Products with Supplier and Stock"] = flattened
         
-        # Products Needing Reorder
+        # Products Needing Reorder - fetch all and filter in Python
         response = supabase.table("products_").select(
             "product_name, stock_quantity, reorder_level"
-        ).filter("stock_quantity", "lte", "reorder_level").execute()
-        tables["Products Needing Reorder"] = response.data
+        ).execute()
+        # Filter products where stock_quantity <= reorder_level
+        needing_reorder = [
+            product for product in response.data 
+            if product.get('stock_quantity', 0) <= product.get('reorder_level', 0)
+        ]
+        tables["Products Needing Reorder"] = needing_reorder
         
     except Exception as e:
         st.error(f"Error fetching tables: {str(e)}")
