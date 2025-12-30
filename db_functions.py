@@ -21,6 +21,7 @@ def connect_to_db() -> Client:
 
 
 def get_basic_info(supabase: Client):
+    from datetime import datetime, timedelta
     result = {}
     
     try:
@@ -37,10 +38,73 @@ def get_basic_info(supabase: Client):
         categories = set(row['category'] for row in response.data if row['category'])
         result["Total Categories Dealing"] = len(categories)
         
-        # For now, set default values for metrics that need RPC functions
-        result["Total Sale Value (Last 3 Months)"] = 0
-        result["Total Restock Value (Last 3 Months)"] = 0
-        result["Below Reorder & No Pending Reorders"] = 0
+        # Get all products to get prices
+        response = supabase.table("products_").select("product_id, price").execute()
+        products_map = {p["product_id"]: p["price"] for p in response.data}
+        
+        # Get max date from stock_entries table
+        response = supabase.table("stock_entries").select("entry_date").order("entry_date", desc=True).limit(1).execute()
+        if response.data and response.data[0].get("entry_date"):
+            max_date_str = response.data[0]["entry_date"]
+            max_date = datetime.fromisoformat(max_date_str.replace('Z', '+00:00')).date()
+        else:
+            max_date = datetime.now().date()
+        
+        # Calculate date threshold (3 months before max date)
+        three_months_ago = max_date - timedelta(days=90)
+        
+        # Total Sale Value (Last 3 Months)
+        response = supabase.table("stock_entries").select("change_quantity, entry_date, product_id").eq("change_type", "Sale").execute()
+        sale_entries = response.data
+        
+        total_sale_value = 0
+        for entry in sale_entries:
+            entry_date = entry.get("entry_date")
+            if entry_date:
+                if isinstance(entry_date, str):
+                    entry_date = datetime.fromisoformat(entry_date.replace('Z', '+00:00')).date()
+                
+                if entry_date >= three_months_ago:
+                    product_id = entry.get("product_id")
+                    change_qty = abs(entry.get("change_quantity", 0))
+                    price = products_map.get(product_id, 0)
+                    total_sale_value += change_qty * price
+        
+        result["Total Sale Value (Last 3 Months)"] = round(total_sale_value, 2)
+        
+        # Total Restock Value (Last 3 Months)
+        response = supabase.table("stock_entries").select("change_quantity, entry_date, product_id").eq("change_type", "Restock").execute()
+        restock_entries = response.data
+        
+        total_restock_value = 0
+        for entry in restock_entries:
+            entry_date = entry.get("entry_date")
+            if entry_date:
+                if isinstance(entry_date, str):
+                    entry_date = datetime.fromisoformat(entry_date.replace('Z', '+00:00')).date()
+                
+                if entry_date >= three_months_ago:
+                    product_id = entry.get("product_id")
+                    change_qty = abs(entry.get("change_quantity", 0))
+                    price = products_map.get(product_id, 0)
+                    total_restock_value += change_qty * price
+        
+        result["Total Restock Value (Last 3 Months)"] = round(total_restock_value, 2)
+        
+        # Below Reorder & No Pending Reorders
+        response = supabase.table("products_").select("product_id, stock_quantity, reorder_level").execute()
+        products = response.data
+        
+        response = supabase.table("reorders").select("product_id").in_("status", ["Pending", "Ordered"]).execute()
+        pending_product_ids = set(r["product_id"] for r in response.data)
+        
+        below_reorder_no_pending = sum(
+            1 for p in products 
+            if p.get("stock_quantity", 0) < p.get("reorder_level", 0) 
+            and p.get("product_id") not in pending_product_ids
+        )
+        
+        result["Below Reorder & No Pending Reorders"] = below_reorder_no_pending
         
     except Exception as e:
         st.error(f"Error fetching basic info: {str(e)}")
