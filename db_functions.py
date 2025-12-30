@@ -11,6 +11,7 @@ def connect_to_db():
     )
 
 
+
 def get_basic_info(cursor):
     queries = {
         "Total Suppliers": "SELECT COUNT(*) AS count FROM suppliers",
