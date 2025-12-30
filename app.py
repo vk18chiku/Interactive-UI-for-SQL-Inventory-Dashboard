@@ -1,5 +1,6 @@
 import streamlit as st
 import pandas as pd
+from psycopg2.extras import RealDictCursor
 
 from db_functions import (
 connect_to_db,
@@ -25,7 +26,7 @@ st.title("Inventory and Supply Chain Dashboard")
 # Connect to database with error handling
 try:
     db = connect_to_db()
-    cursor = db.cursor(dictionary=True)
+    cursor = db.cursor(cursor_factory=RealDictCursor)
 except Exception as e:
     st.error(f"Failed to connect to database: {str(e)}")
     st.stop()

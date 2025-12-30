@@ -1,27 +1,28 @@
-import mysql.connector
+import psycopg2
+from psycopg2.extras import RealDictCursor
 import streamlit as st
 
 @st.cache_resource
 def connect_to_db():
     try:
-        connection = mysql.connector.connect(
-            host=st.secrets["DB_HOST"],
-            user=st.secrets["DB_USER"],
-            database=st.secrets["DB_NAME"],
-            password=st.secrets["DB_PASSWORD"],
-            port=st.secrets["DB_PORT"],
-            autocommit=True,
-            connection_timeout=10
+        connection = psycopg2.connect(
+            host=st.secrets["SUPABASE_HOST"],
+            database=st.secrets["SUPABASE_DB"],
+            user=st.secrets["SUPABASE_USER"],
+            password=st.secrets["SUPABASE_PASSWORD"],
+            port=st.secrets.get("SUPABASE_PORT", 5432),
+            connect_timeout=10
         )
+        connection.autocommit = True
         return connection
     except Exception as e:
         st.error(f"❌ Database connection failed: {str(e)}")
         st.info("""
         **Troubleshooting:**
-        1. Make sure your database is publicly accessible
-        2. Add Streamlit Cloud IP to your database whitelist
-        3. Verify secrets are correctly configured in Streamlit Cloud
-        4. Check if database server is running
+        1. Make sure Supabase secrets are correctly configured
+        2. Verify your Supabase project is active
+        3. Check if pooling mode is set correctly
+        4. Ensure database is accessible
         """)
         st.stop()
 
@@ -36,21 +37,21 @@ def get_basic_info(cursor):
         "Total Categories Dealing": "SELECT COUNT(DISTINCT category) AS count FROM products_",
 
         "Total Sale Value (Last 3 Months)": """
-                SELECT ROUND(SUM(ABS(se.change_quantity) * p.price), 2) AS total_sale
+                SELECT ROUND(CAST(SUM(ABS(se.change_quantity) * p.price) AS NUMERIC), 2) AS total_sale
                 FROM stock_entries se
                 JOIN products_ p ON se.product_id = p.product_id
                 WHERE se.change_type = 'Sale'
                 AND se.entry_date >= (
-                SELECT DATE_SUB(MAX(entry_date), INTERVAL 3 MONTH) FROM stock_entries)
+                SELECT MAX(entry_date) - INTERVAL '3 months' FROM stock_entries)
                 """,
 
         "Total Restock Value (Last 3 Months)": """
-                SELECT ROUND(SUM(se.change_quantity * p.price), 2) AS total_restock
+                SELECT ROUND(CAST(SUM(se.change_quantity * p.price) AS NUMERIC), 2) AS total_restock
                 FROM stock_entries se
                 JOIN products_ p ON se.product_id = p.product_id
                 WHERE se.change_type = 'Restock'
                 AND se.entry_date >= (
-                SELECT DATE_SUB(MAX(entry_date), INTERVAL 3 MONTH) FROM stock_entries)
+                SELECT MAX(entry_date) - INTERVAL '3 months' FROM stock_entries)
                 """,
 
         "Below Reorder & No Pending Reorders": """
@@ -98,55 +99,56 @@ def get_additional_tables(cursor):
     return tables
 
 def add_new_manual_id(cursor, db, p_name , p_category , p_price , p_stock , p_reorder, p_supplier):
-    proc_call= "call AddNewProductManualID(%s, %s, %s ,%s ,%s, %s)"
-    params= (p_name , p_category , p_price , p_stock , p_reorder, p_supplier)
-    cursor.execute(proc_call, params)
-    db.commit()
+    # PostgreSQL function call
+    cursor.execute(
+        "SELECT add_new_product_manual_id(%s, %s, %s, %s, %s, %s)",
+        (p_name, p_category, p_price, p_stock, p_reorder, p_supplier)
+    )
 
 def get_categories(cursor):
-    cursor.execute("select Distinct category  from products_  order by category  asc")
-    rows= cursor.fetchall()
+    cursor.execute("SELECT DISTINCT category FROM products_ ORDER BY category ASC")
+    rows = cursor.fetchall()
     return [row["category"] for row in rows]
 
 def get_suppliers(cursor):
-    cursor.execute("select supplier_id , supplier_name from suppliers order by  supplier_name asc")
+    cursor.execute("SELECT supplier_id, supplier_name FROM suppliers ORDER BY supplier_name ASC")
     return cursor.fetchall()
 
 def get_all_products(cursor):
-    cursor.execute("select product_id, product_name from products_ order by  product_name")
+    cursor.execute("SELECT product_id, product_name FROM products_ ORDER BY product_name")
     return cursor.fetchall()
 
 def get_product_history(cursor, product_id):
-    query ="select * from product_inventory_history where product_id= %s order by record_date Desc"
-    cursor.execute(query , (product_id,))
+    query = "SELECT * FROM product_inventory_history WHERE product_id = %s ORDER BY record_date DESC"
+    cursor.execute(query, (product_id,))
     return cursor.fetchall()
 
-def place_reorder(cursor, db, product_id , reorder_quantity):
-    query= """
-         insert into reorders (reorder_id,product_id ,reorder_quantity,reorder_date ,status)
-         select 
-         max(reorder_id)+1,
+def place_reorder(cursor, db, product_id, reorder_quantity):
+    query = """
+         INSERT INTO reorders (reorder_id, product_id, reorder_quantity, reorder_date, status)
+         SELECT 
+         COALESCE(MAX(reorder_id), 0) + 1,
          %s,
          %s,
-         curdate(),
-         "Ordered"
-         from reorders;
+         CURRENT_DATE,
+         'Ordered'
+         FROM reorders
          """
-    cursor.execute(query,(product_id, reorder_quantity))
-    db.commit()
+    cursor.execute(query, (product_id, reorder_quantity))
 
 
 def get_pending_reorders(cursor):
     cursor.execute("""
-    select r.reorder_id , p.product_name
-    from reorders as r join products_ as p 
-    on r.product_id= p.product_id
+    SELECT r.reorder_id, p.product_name
+    FROM reorders AS r 
+    JOIN products_ AS p ON r.product_id = p.product_id
+    WHERE r.status IN ('Pending', 'Ordered')
     """)
     return cursor.fetchall()
 
 def mark_reorder_as_received(cursor, db, reorder_id):
-    cursor.callproc("MarkReorderAsReceived",[reorder_id])
-    db.commit()
+    # PostgreSQL function call
+    cursor.execute("SELECT mark_reorder_as_received(%s)", (reorder_id,))
 
 
 
