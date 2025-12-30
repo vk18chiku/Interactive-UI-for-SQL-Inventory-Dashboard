@@ -1,15 +1,23 @@
 
 import pymysql
 import os
+import mysql.connector
 
 def connect_to_db():
-    return pymysql.connect(
-        host=os.environ["DB_HOST"],
-        user=os.environ["DB_USER"],
-        password=os.environ["DB_PASSWORD"],
-        database=os.environ["DB_NAME"],
-        port=int(os.environ["DB_PORT"])
+    return mysql.connector.connect(
+
+        host="localhost",
+
+        user="root",
+
+        database="dummy_project",
+
+        password="Uttam1234@",
+
+        port=3307
+
     )
+
 
 
 def get_basic_info(cursor):
